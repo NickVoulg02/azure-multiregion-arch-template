@@ -37,7 +37,7 @@ az keyvault secret set \
   --value "$SQL_ADMIN_PASSWORD"
 
 
-#  Ensure you have copied infra/main.parameters.example.json to infra/main.parameters.dev.json 
+#  Ensure you have copied templates/main.parameters.example.json to templates/main.parameters.dev.json 
 read -p "Have you updated main.parameters.dev.json with the new Key Vault ID? (y/n) " -n 1 -r
 echo
 if [[ ! $REPLY =~ ^[Yy]$ ]]
@@ -49,8 +49,8 @@ fi
 az deployment group create \
   --name $DEPLOYMENT_NAME \
   --resource-group $RESOURCE_GROUP \
-  --template-file infra/main.bicep \
-  --parameters infra/main.parameters.dev.json
+  --template-file templates/main.bicep \
+  --parameters templates/main.parameters.dev.json
 
 echo "Infrastructure provisioned successfully."
 echo "Application Code Deployment..."
