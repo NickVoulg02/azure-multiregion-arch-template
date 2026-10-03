@@ -9,8 +9,8 @@ on:
 env:
   RESOURCE_GROUP: "ToyAppResourceGroup"
   LOCATION: "centralus"
-  # Using github.run_id to ensure a unique, valid Key Vault name (no < > characters)
-  KEY_VAULT_NAME: "kv-toyapp-${{ github.run_id }}"
+  # Using github.repository_id to ensure a static, globally unique Key Vault name across all runs
+  KEY_VAULT_NAME: "kv-toyapp-${{ github.repository_id }}"
   DEPLOYMENT_NAME: "multi-region-deploy"
 
 jobs:
