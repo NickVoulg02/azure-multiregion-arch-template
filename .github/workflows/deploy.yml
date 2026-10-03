@@ -1,0 +1,110 @@
+name: Deploy Infrastructure and Application
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  RESOURCE_GROUP: "ToyAppResourceGroup"
+  LOCATION: "centralus"
+  # Using github.run_id to ensure a unique, valid Key Vault name (no < > characters)
+  KEY_VAULT_NAME: "kv-toyapp-${{ github.run_id }}"
+  DEPLOYMENT_NAME: "multi-region-deploy"
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Create Resource Group
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az group create \
+              --name ${{ env.RESOURCE_GROUP }} \
+              --location ${{ env.LOCATION }}
+
+      - name: Provision Key Vault
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az keyvault create \
+              --name ${{ env.KEY_VAULT_NAME }} \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --location ${{ env.LOCATION }} \
+              --enabled-for-template-deployment true
+
+      - name: Set SQL Admin Password Secret
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az keyvault secret set \
+              --vault-name ${{ env.KEY_VAULT_NAME }} \
+              --name "sqlAdminPassword" \
+              --value "${{ secrets.SQL_ADMIN_PASSWORD }}"
+
+      - name: Generate Bicep Parameters File
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            # Retrieve the subscription ID from the Azure login context
+            SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+            
+            # Replace placeholders in the example parameters file to create the dev parameters file
+            sed -e "s/<YOUR_SUBSCRIPTION_ID>/$SUBSCRIPTION_ID/g" \
+                -e "s/<YOUR_RESOURCE_GROUP>/${{ env.RESOURCE_GROUP }}/g" \
+                -e "s/<YOUR_KEY_VAULT_NAME>/${{ env.KEY_VAULT_NAME }}/g" \
+                templates/main.parameters.example.json > templates/main.parameters.dev.json
+
+      - name: Validate Bicep Template
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az deployment group validate \
+              --name validate-${{ env.DEPLOYMENT_NAME }} \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --template-file templates/main.bicep \
+              --parameters templates/main.parameters.dev.json
+
+      - name: Deploy Infrastructure via Bicep
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az deployment group create \
+              --name ${{ env.DEPLOYMENT_NAME }} \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --template-file templates/main.bicep \
+              --parameters templates/main.parameters.dev.json
+
+      - name: Build and Package Application
+        run: |
+          cd src
+          zip -r ../app.zip ./*
+
+      - name: Deploy Application Code to App Service
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            # Retrieve the dynamically generated App Service name from the resource group
+            APP_SERVICE_NAME=$(az webapp list --resource-group ${{ env.RESOURCE_GROUP }} --query "[0].name" -o tsv)
+            
+            az webapp deployment source config-zip \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --name $APP_SERVICE_NAME \
+              --src app.zip
